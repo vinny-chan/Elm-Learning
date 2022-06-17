@@ -2,14 +2,16 @@ module Main exposing (..)
 
 import Browser
 import Html exposing (..)
-import Html.Attributes exposing (class, src)
+import Html.Attributes exposing (class, placeholder, src, value)
+import Html.Events exposing (onClick, onInput)
 import Http
-import Json.Decode exposing (Decoder, field, float, int, map4, string)
+import Json.Decode exposing (Decoder, andThen, field, float, int, map5, string, succeed)
 import RemoteData exposing (WebData)
 
 
 type alias Product =
-    { title : String
+    { id : String
+    , title : String
     , price : Float
     , stock : Int
     , thumbnail : String
@@ -22,13 +24,29 @@ type alias Post =
 
 type alias Model =
     { post : WebData Post
+    , searchId : String
+    , isFiltering : Bool
     }
+
+
+type Msg
+    = FetchPosts
+    | PostsReceived (WebData Post)
+    | ChangeInput String
+    | SearchProduct
+    | ClearFilter
 
 
 view : Model -> Html Msg
 view model =
-    div [ class "flex justify-center" ]
-        [ viewProductsOrError model
+    div [ class "flex flex-col justify-center gap-y-2 w-2/6" ]
+        [ div [ class "flex gap-2" ]
+            [ input [ class "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500", placeholder "Search by Product ID", value model.searchId, onInput ChangeInput ] []
+            , button [ class "text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800", onClick SearchProduct ] [ text "Search" ]
+            , button [ class "text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800", onClick ClearFilter ] [ text "Clear" ]
+            ]
+        , viewProductsOrError
+            model
         ]
 
 
@@ -41,8 +59,16 @@ viewProductsOrError model =
         RemoteData.Loading ->
             h3 [] [ text "Loading..." ]
 
-        RemoteData.Success posts ->
-            viewProducts posts
+        RemoteData.Success post ->
+            let
+                filteredPost =
+                    if model.isFiltering then
+                        List.filter (\l -> l.id == model.searchId) post
+
+                    else
+                        post
+            in
+            viewProducts filteredPost
 
         RemoteData.Failure httpError ->
             viewError (buildErrorMessage httpError)
@@ -75,14 +101,10 @@ viewProduct { title, price, stock, thumbnail } =
         ]
 
 
-type Msg
-    = FetchPosts
-    | PostsReceived (WebData Post)
-
-
 productDecoder : Decoder Product
 productDecoder =
-    map4 Product
+    map5 Product
+        (field "id" int |> andThen (\id -> succeed (String.fromInt id)))
         (field "title" string)
         (field "price" float)
         (field "stock" int)
@@ -113,6 +135,15 @@ update msg model =
         PostsReceived response ->
             ( { model | post = response }, Cmd.none )
 
+        ChangeInput value ->
+            ( { model | searchId = value }, Cmd.none )
+
+        SearchProduct ->
+            ( { model | isFiltering = True }, Cmd.none )
+
+        ClearFilter ->
+            ( { model | isFiltering = False }, Cmd.none )
+
 
 buildErrorMessage : Http.Error -> String
 buildErrorMessage httpError =
@@ -135,7 +166,7 @@ buildErrorMessage httpError =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { post = RemoteData.Loading }, fetchPosts )
+    ( { post = RemoteData.Loading, searchId = "", isFiltering = False }, fetchPosts )
 
 
 main : Program () Model Msg
